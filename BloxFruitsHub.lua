@@ -263,7 +263,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.5"
+HUB_VERSION = "3.6"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -1207,7 +1207,76 @@ QUESTS = {
 	{ min = 775, max = 799, quest = "Area2Quest",     num = 1, pos = Vector3.new(632, 74, 1370),    mon = "Swan Pirate" },
 }
 
-local function getQuestDef(level)
+-- OYUNUN KENDİ GÖREV VERİSİNDEN level'e uygun görevi bulur.
+-- Elle yazılmış tablo sadece 800 seviyeye kadar olduğu için 1500-2800 gibi
+-- seviyelerde "görev yok" kalıyordu; artık ReplicatedStorage.Quests okunuyor.
+questCacheDef = nil
+questCacheAt = 0
+function questNpcPos(mon)
+	local ok, gm = pcall(function()
+		local m = RS:FindFirstChild("GuideModule")
+		return m and require(m)
+	end)
+	if not ok or type(gm) ~= "table" or type(gm.Data) ~= "table" then return nil end
+	local list = gm.Data.NPCList
+	if type(list) ~= "table" then return nil end
+	local level = getLevel()
+	local best, bestLvl
+	for _, v in pairs(list) do
+		if type(v) == "table" and type(v.Levels) == "table" and v.Position then
+			for _, lv in pairs(v.Levels) do
+				if type(lv) == "number" and lv <= level and (not bestLvl or lv > bestLvl) then
+					bestLvl, best = lv, v
+				end
+			end
+		end
+	end
+	return best and best.Position or nil
+end
+
+function getQuestFromGame()
+	local now = os.clock()
+	if now - (questCacheAt or 0) < 6 then return questCacheDef end
+	questCacheAt = now
+	questCacheDef = nil
+
+	local ok, quests = pcall(function()
+		local m = RS:FindFirstChild("Quests")
+		return m and require(m)
+	end)
+	if not ok or type(quests) ~= "table" then return nil end
+
+	local level = getLevel()
+	local bestQ, bestId, bestNum, bestReq
+	for id, sea in pairs(quests) do
+		if type(sea) == "table" and type(id) == "string" then
+			for num, q in pairs(sea) do
+				if type(q) == "table" and type(q.LevelReq) == "number" and q.LevelReq <= level then
+					if not bestReq or q.LevelReq > bestReq then
+						bestReq, bestQ, bestId, bestNum = q.LevelReq, q, id, num
+					end
+				end
+			end
+		end
+	end
+	if not bestQ then return nil end
+
+	local mon
+	if type(bestQ.Task) == "table" then
+		for k in pairs(bestQ.Task) do mon = k break end
+	end
+	mon = mon or bestQ.Name or ""
+	if mon == "Trainees" then return nil end
+
+	local pos = questNpcPos(mon)
+	if not pos then return nil end
+	questCacheDef = { quest = bestId, num = bestNum, mon = mon, pos = pos, min = 0, max = 9999, req = bestReq }
+	return questCacheDef
+end
+
+function getQuestDef(level)
+	local dyn = getQuestFromGame()
+	if dyn then return dyn end
 	for _, q in ipairs(QUESTS) do
 		if level >= q.min and level <= q.max then return q end
 	end
@@ -2396,6 +2465,16 @@ local function farmTick()
 			and os.clock() - (farmTick.zoneTp or 0) > 2 then
 			farmTick.zoneTp = os.clock()
 			tpAt(def.pos)
+		elseif os.clock() - (farmTick.zoneTp or 0) > 3 then
+			-- görev verisi yoksa: düşmanların olduğu bölgeye atla (boş boş durmasın)
+			local enemies = workspace:FindFirstChild("Enemies")
+			local kids = enemies and enemies:GetChildren() or {}
+			if #kids > 0 then
+				farmTick.zoneTp = os.clock()
+				local pick = kids[math.random(1, #kids)]
+				local bp = pick and pick:FindFirstChild("HumanoidRootPart")
+				if bp then tpAt(bp.Position + Vector3.new(0, 4, 0)) end
+			end
 		end
 		return
 	end
@@ -3172,6 +3251,21 @@ do
 	end)
 	toggle(page, "AutoEquip", "Silahı otomatik kuşan", true, function(on)
 		State.AutoEquip = on
+	end)
+
+	questLabel = label(page, "Görev: --", Theme.sub)
+	task.spawn(function()
+		while questLabel.Parent do
+			local def = getQuestDef(getLevel())
+			if def then
+				questLabel.Text = "Görev: " .. tostring(def.mon) .. "  •  Lv " .. tostring(getLevel())
+				questLabel.TextColor3 = Theme.good or Theme.accent
+			else
+				questLabel.Text = "Görev: bulunamadı (en yakın düşman farmlanır)"
+				questLabel.TextColor3 = Theme.bad or Theme.sub
+			end
+			task.wait(2)
+		end
 	end)
 
 	section(page, "Saldırı")

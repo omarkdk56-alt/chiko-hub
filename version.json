@@ -1,5 +1,5 @@
 {
-  "version": "3.5",
-  "notes": "Sandik tarama (workspace.Map) + dokunma ile toplama, saldiri testi, halloween yaratik anahtar kelimeleri",
+  "version": "3.6",
+  "notes": "Level bazli gorev: oyunun Quests/GuideModule verisinden secim, 2800 seviyede de calisir; gorev yoksa dusman bolgesine TP",
   "updated": "2026-11-11"
 }
