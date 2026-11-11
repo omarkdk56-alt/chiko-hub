@@ -190,6 +190,8 @@ local State = {
 	SafeSpeed = true,          -- hızları oyunun izin verdiği aralığa çeker
 	SpeedCap = 200,            -- uçuş / ışınlanma / dash üst sınırı
 	ClickAttack = true,        -- M1 hasarı için sanal tık (Blox Fruits şartı)
+	AuraTP = true,             -- Kill Aura hedefe ışınlanıp vurur (gerçekten çalışan mod)
+	ClickMethod = "?",         -- hangi tık yöntemi çalıştı (teşhis için)
 	-- dahili
 	Target = "-",
 	Busy = false,
@@ -263,7 +265,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.6"
+HUB_VERSION = "3.7"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -1656,27 +1658,33 @@ end
 -- Blox Fruits'ta yumruk/kılıç hasarı CombatFramework'ten geçtiği için gerekli.
 clickAt = 0
 function softClick()
-	-- saniyede en fazla ~25 sanal tık: aşırı tık motoru kilitleyip oyunu çökertiyordu
+	-- saniyede en fazla ~20 tık (motoru boğmadan)
 	local nowClick = os.clock()
-	if nowClick - (clickAt or 0) < 0.04 then return false end
+	if nowClick - (clickAt or 0) < 0.05 then return false end
 	clickAt = nowClick
+	-- 1) VirtualUser (en sağlıklı)
 	if VU then
 		local ok = pcall(function()
 			VU:CaptureController()
 			VU:ClickButton1(Vector2.new(0, 0))
 		end)
-		if ok then return true end
-		pcall(function()
-			VU:CaptureController()
-			VU:Button1Down(Vector2.new(0, 0))
-			VU:Button1Up(Vector2.new(0, 0))
-		end)
-		return true
+		if ok then State.ClickMethod = "VirtualUser" return true end
 	end
+	-- 2) executor mouse1click
 	if type(mouse1click) == "function" then
-		pcall(mouse1click)
-		return true
+		local ok = pcall(mouse1click)
+		if ok then State.ClickMethod = "mouse1click" return true end
 	end
+	-- 3) VirtualInputManager ile fare olayı
+	if VIM then
+		local ok = pcall(function()
+			VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+			task.wait(0.02)
+			VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+		end)
+		if ok then State.ClickMethod = "VIM" return true end
+	end
+	State.ClickMethod = "yok"
 	return false
 end
 
@@ -1881,7 +1889,7 @@ function hookCombat()
 					ac.timeToNextAttack = -math.huge
 					ac.increment = 4
 					ac.blocking = false
-					ac.hitboxMagnitude = math.max(ac.hitboxMagnitude or 0, (State.FarmRange or 32) + 12)
+					ac.hitboxMagnitude = math.max(ac.hitboxMagnitude or 0, math.max(State.FarmRange or 32, State.AuraRange or 40) + 12)
 					ac.currentAttackTrack = 0
 				end)
 				hit = hit + 1
@@ -2593,18 +2601,14 @@ function auraTick()
 	if not (ch and hum and hrp) or hum.Health <= 0 then return end
 
 	local now = os.clock()
-	local delay = 0.07
-	if State.Bypass then delay = 0.05 end
-	if State.FastAttack then delay = 0.05 end
+	local delay = State.AuraTP and 0.12 or 0.07
+	if State.FastAttack then delay = 0.09 end
 	if now - auraLast < delay then return end
 	auraLast = now
 
-	-- silah yoksa kuşan (Kill Aura'nın sessizce ölmesini engeller)
 	local tool = equippedTool() or (State.AutoEquip and autoEquip()) or nil
-	local canSkill = State.UseSkills and tool and tool:FindFirstChild("RemoteFunction") ~= nil
-
-	local count, nearest, nearestD = 0, nil, nil
-	local targets = {}
+	local range = State.AuraRange or 40
+	local mobs, count, nearest, nearestD = {}, 0, nil, nil
 	for _, m in ipairs(mobList()) do
 		if mobAlive(m) then
 			local okFilter = true
@@ -2612,36 +2616,45 @@ function auraTick()
 			if State.MobFilter == "Deniz canavarı" and not isSeaBeastName(m.Name) then okFilter = false end
 			local pos = m.HumanoidRootPart.Position
 			local d = (pos - hrp.Position).Magnitude
-			if okFilter and d <= State.AuraRange then
+			if okFilter and d <= range then
 				count = count + 1
-				if State.AuraHold then holdMob(m) end
-				if #targets < 4 then targets[#targets + 1] = pos end
 				if not nearestD or d < nearestD then nearest, nearestD = m, d end
-				if canSkill then
-					for _, k in ipairs({ "Z", "X", "C", "V" }) do
-						if State["Skill" .. k] then useSkill(k, pos) end
-					end
-				end
+				if #mobs < 4 then mobs[#mobs + 1] = m end
 			end
 		end
 	end
 
-	if not nearest then
+	if count == 0 then
 		State.AuraInfo = "menzilde hedef yok"
 		return
 	end
 	State.AuraInfo = tostring(count) .. " hedef"
-
 	updateRing()
 
-	-- "drrrr": menzildeki tüm hedeflere peş peşe sanal M1
-	for i = 1, #targets do
-		facePos(targets[i])
-		if tool then pcall(function() tool:Activate() end) end
-		if State.ClickAttack ~= false then softClick() end
-		if i < #targets then task.wait(0.03) end
+	if State.AuraTP then
+		-- GERÇEK kill aura: hedefin dibine ışınlan, yüzünü dön, vur.
+		-- Blox Fruits'ta hasar karakterin önüne gider; uzaktan Activate boşa gider.
+		for _, m in ipairs(mobs) do
+			if mobAlive(m) then
+				local target = m.HumanoidRootPart
+				local _, h2, r2 = getChar()
+				if not (h2 and r2) then break end
+				pcall(function() r2.CFrame = target.CFrame * CFrame.new(0, 0, 4.5) end)
+				facePos(target.Position)
+				if State.AuraHold then holdMob(m) end
+				if tool then pcall(function() tool:Activate() end) end
+				if State.ClickAttack ~= false then softClick() end
+				task.wait(0.03)
+			end
+		end
+	else
+		local pos = nearest and nearest.HumanoidRootPart.Position
+		if pos then
+			facePos(pos)
+			if tool then pcall(function() tool:Activate() end) end
+			if State.ClickAttack ~= false then softClick() end
+		end
 	end
-	if #targets == 0 then swing(tool, nearest.HumanoidRootPart.Position) end
 end
 
 -- toplama döngüleri -------------------------------------------------
@@ -3177,6 +3190,7 @@ local function diagReport()
 		"Workspace çocuk: " .. #workspace:GetChildren(),
 		"Aktif farm hedefi: " .. tostring(State.Target),
 		"Işınlanma: " .. (State.TpInfo ~= "" and State.TpInfo or "henüz denenmedi"),
+		"Tık yöntemi: " .. tostring(State.ClickMethod or "?"),
 	}
 	return table.concat(lines, "\n")
 end
@@ -3280,6 +3294,9 @@ do
 	end)
 	toggle(page, "FastAttack", "Hızlı vuruş (Fast Attack)", false, function(on)
 		State.FastAttack = on
+	end)
+	toggle(page, "AuraTP", "Kill Aura: hedefe ışınlanıp vur (çalışan mod)", true, function(on)
+		State.AuraTP = on
 	end)
 	slider(page, "Farm vuruş menzili", 8, 60, 32, function(v)
 		State.FarmRange = v

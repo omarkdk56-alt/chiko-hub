@@ -1,5 +1,5 @@
 {
-  "version": "3.6",
-  "notes": "Level bazli gorev: oyunun Quests/GuideModule verisinden secim, 2800 seviyede de calisir; gorev yoksa dusman bolgesine TP",
+  "version": "3.7",
+  "notes": "Kill Aura TP modu (hedefe isinlanip vurur), 3lu tik yontemi, teshisde tik yontemi",
   "updated": "2026-11-11"
 }
