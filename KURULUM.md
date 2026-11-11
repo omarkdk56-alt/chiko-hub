@@ -71,5 +71,5 @@ Sitelerin verdiği "kısa kod" mantığı bu: kod GitHub'da durur, sende sadece 
 
 En kısa hali (URL'yi kendi linkinle değiştir):
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/BloxFruitsHub.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/BloxFruitsHub.lua?t=" .. os.time()))()
 ```

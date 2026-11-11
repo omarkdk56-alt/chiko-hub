@@ -39,7 +39,8 @@ local function fetch(u)
 	return nil
 end
 
-local src = fetch(URL)
+local ts = tostring(os.time())
+local src = fetch(URL .. "?t=" .. ts) or fetch(URL)
 
 if not src then
 	warn("[Chiko] script indirilemedi: " .. URL)
