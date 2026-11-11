@@ -263,7 +263,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.3"
+HUB_VERSION = "3.4"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -1585,7 +1585,12 @@ end
 
 -- SANAL tık: gerçek imleci oynatmaz, ekrana basmaz; M1'i engine'e gönderir.
 -- Blox Fruits'ta yumruk/kılıç hasarı CombatFramework'ten geçtiği için gerekli.
+clickAt = 0
 function softClick()
+	-- saniyede en fazla ~25 sanal tık: aşırı tık motoru kilitleyip oyunu çökertiyordu
+	local nowClick = os.clock()
+	if nowClick - (clickAt or 0) < 0.04 then return false end
+	clickAt = nowClick
 	if VU then
 		local ok = pcall(function()
 			VU:CaptureController()
@@ -1789,10 +1794,16 @@ end
 function hookCombat()
 	local gc = getgc or getreg
 	if type(gc) ~= "function" then return false end
+	-- getgc taraması ağırdır: en fazla 1.2 saniyede bir, sınırlı tarama
+	local nowH = os.clock()
+	if nowH - (hookCombat.next or 0) < 1.2 then return false end
+	hookCombat.next = nowH
 	local ok, list = pcall(gc, true)
 	if not ok or type(list) ~= "table" then return false end
-	local hit = 0
+	local hit, scanned = 0, 0
 	for _, v in pairs(list) do
+		scanned = scanned + 1
+		if scanned > 12000 then break end
 		if type(v) == "table" then
 			local ac = rawget(v, "activeController")
 			if type(ac) == "table" then
@@ -1816,7 +1827,7 @@ task.spawn(function()
 	task.wait(6)
 	while gui.Parent do
 		if State.FastAttack then pcall(hookCombat) end
-		task.wait(0.4)
+		task.wait(1.2)
 	end
 end)
 
@@ -2443,9 +2454,9 @@ function auraTick()
 	if not (ch and hum and hrp) or hum.Health <= 0 then return end
 
 	local now = os.clock()
-	local delay = 0.05
-	if State.Bypass then delay = 0.02 end
-	if State.FastAttack then delay = 0.02 end
+	local delay = 0.07
+	if State.Bypass then delay = 0.05 end
+	if State.FastAttack then delay = 0.05 end
 	if now - auraLast < delay then return end
 	auraLast = now
 
@@ -2465,7 +2476,7 @@ function auraTick()
 			if okFilter and d <= State.AuraRange then
 				count = count + 1
 				if State.AuraHold then holdMob(m) end
-				if #targets < 8 then targets[#targets + 1] = pos end
+				if #targets < 4 then targets[#targets + 1] = pos end
 				if not nearestD or d < nearestD then nearest, nearestD = m, d end
 				if canSkill then
 					for _, k in ipairs({ "Z", "X", "C", "V" }) do
@@ -2489,7 +2500,7 @@ function auraTick()
 		facePos(targets[i])
 		if tool then pcall(function() tool:Activate() end) end
 		if State.ClickAttack ~= false then softClick() end
-		if i < #targets then task.wait(0.015) end
+		if i < #targets then task.wait(0.03) end
 	end
 	if #targets == 0 then swing(tool, nearest.HumanoidRootPart.Position) end
 end

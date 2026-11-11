@@ -1,5 +1,5 @@
 {
-  "version": "3.3",
-  "notes": "Kill aura seri vurus (drrrr), oyuncu hedefleme fix, TP geri donme fix, yatik balkabagi + yaratik kesme",
+  "version": "3.4",
+  "notes": "Cokme korumasi: tik hizi sinirlandi, getgc taramasi seyreltildi, aura hedef sayisi sinirli",
   "updated": "2026-11-11"
 }
