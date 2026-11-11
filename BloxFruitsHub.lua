@@ -1,6 +1,6 @@
 --[[
 =====================================================================
-  Blox Fruits Hub  v3.0
+  Blox Fruits Hub  v3.1
   Tek dosya, harici kütüphane yok.
   Kısayol: INSERT -> menüyü aç / kapat
   Tuş atamalarını "Ayarlar" sekmesinden değiştirebilirsin.
@@ -259,6 +259,67 @@ local function gradient(obj, from, to, rot)
 	})
 end
 
+--===================================================================
+-- 3.5) SÜRÜM KONTROLÜ
+--===================================================================
+HUB_VERSION = "3.1"
+VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
+
+function httpGet(url)
+	if game and type(game.HttpGet) == "function" then
+		local ok, body = pcall(function() return game:HttpGet(url) end)
+		if ok and type(body) == "string" and #body > 0 then return body end
+	end
+	local http = (syn and syn.request) or (http and http.request) or http_request or request
+	if http then
+		local ok, res = pcall(http, { Url = url, Method = "GET" })
+		if ok and type(res) == "table" then
+			local body = res.Body or res.body
+			if type(body) == "string" and #body > 0 then return body end
+		end
+	end
+	return nil
+end
+
+function verNum(v)
+	local a, b, c = tostring(v):match("(%d+)%.(%d+)%.?(%d*)")
+	if not a then a = tostring(v):match("(%d+)") end
+	return (tonumber(a) or 0) * 10000 + (tonumber(b) or 0) * 100 + (tonumber(c) or 0)
+end
+
+-- yeni sürüm çıkınca oyun içi bildirim verir
+function checkUpdate(silent)
+	local now = os.clock()
+	if now - (checkUpdate.last or 0) < 5 then return end
+	checkUpdate.last = now
+	task.spawn(function()
+		local body = httpGet(VERSION_URL)
+		if not body then
+			if updateLabel then updateLabel.Text = "Sürüm: v" .. HUB_VERSION .. "  •  kontrol edilemedi" end
+			if not silent then notify("Güncelleme kontrolü: bağlantı yok") end
+			return
+		end
+		local latest = body:match('"version"%s*:%s*"([^"]+)"') or body:match("(%d+%.%d+[%d%.]*)")
+		if not latest then
+			if not silent then notify("Güncelleme: sürüm bilgisi okunamadı") end
+			return
+		end
+		if verNum(latest) > verNum(HUB_VERSION) then
+			notify("YENİ SÜRÜM: v" .. latest .. " — kısa kodu tekrar çalıştır")
+			if updateLabel then
+				updateLabel.Text = "Sürüm: v" .. HUB_VERSION .. "  •  YENİ: v" .. latest
+				updateLabel.TextColor3 = Theme.gold
+			end
+		else
+			if updateLabel then
+				updateLabel.Text = "Sürüm: v" .. HUB_VERSION .. "  •  güncel"
+				updateLabel.TextColor3 = Theme.accent
+			end
+			if not silent then notify("Güncel sürüm: v" .. HUB_VERSION) end
+		end
+	end)
+end
+
 local ACCENT_A = Color3.fromRGB(124, 108, 255)
 local ACCENT_B = Color3.fromRGB(72, 205, 255)
 local ACCENT_PINK = Color3.fromRGB(226, 96, 220)
@@ -333,7 +394,7 @@ do
 		Parent = band,
 	})
 	newInstance("TextLabel", {
-		Text = "v3.0  •  yükleniyor",
+		Text = "v" .. HUB_VERSION .. "  •  yükleniyor",
 		Font = Enum.Font.Gotham,
 		TextSize = 11,
 		TextColor3 = Color3.fromRGB(232, 234, 255),
@@ -513,7 +574,7 @@ newInstance("TextLabel", {		Text = "C",
 	Size = UDim2.fromOffset(300, 22),
 	Parent = headerBand,
 })
-local versionLabel = newInstance("TextLabel", {		Text = "BLOX FRUITS  •  v3.0  •  INSERT ile aç / kapat",
+local versionLabel = newInstance("TextLabel", {		Text = "BLOX FRUITS  •  v" .. HUB_VERSION .. "  •  INSERT ile aç / kapat",
 	Font = Enum.Font.Gotham,
 	TextSize = 11,
 	TextColor3 = Theme.sub,
@@ -2871,7 +2932,7 @@ local function diagReport()
 	local _, hum = getChar()
 	local ok2, res = pcall(function() return CommF:GetFullName() end)
 	local lines = {
-		"Chiko Hub v3.0 — teşhis",
+		"Chiko Hub v" .. HUB_VERSION .. " — teşhis",
 		"JobID: " .. tostring(game.JobId),
 		"Yer: " .. tostring(game.PlaceId),
 		"Seviye: " .. tostring(getLevel()),
@@ -3579,6 +3640,22 @@ do
 		refreshers[#refreshers + 1] = { id = b[1], fn = bindRow(b[1], b[2]) }
 	end
 
+	section(page, "Güncelleme")
+	updateLabel = newInstance("TextLabel", {
+		Text = "Sürüm: v" .. HUB_VERSION,
+		Font = Enum.Font.GothamSemibold,
+		TextSize = 12,
+		TextColor3 = Theme.sub,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 22),
+		LayoutOrder = nextOrder(page),
+		Parent = page,
+	})
+	button(page, "Güncelleme kontrol et", function()
+		checkUpdate(false)
+	end, true)
+
 	section(page, "Acil durum")
 	button(page, "Her şeyi kapat (panik)", function()
 		local ids = { "AutoFarm", "KillAura", "AutoFruit", "AutoChest", "AutoRaid", "AutoBoss",
@@ -3984,4 +4061,14 @@ TS:Create(main, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.
 	Position = startPos,
 }):Play()
 
-notify("CHIKO HUB v3.0 hazır. INSERT ile menü.")
+notify("CHIKO HUB v" .. HUB_VERSION .. " hazır. INSERT ile menü.")
+
+-- otomatik sürüm kontrolü: açılışta ve 15 dakikada bir
+task.spawn(function()
+	task.wait(4)
+	pcall(checkUpdate, true)
+	while gui.Parent do
+		task.wait(900)
+		pcall(checkUpdate, true)
+	end
+end)
