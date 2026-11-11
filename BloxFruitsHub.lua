@@ -189,6 +189,7 @@ local State = {
 	FlySpeed = 90,
 	SafeSpeed = true,          -- hızları oyunun izin verdiği aralığa çeker
 	SpeedCap = 200,            -- uçuş / ışınlanma / dash üst sınırı
+	ClickAttack = true,        -- M1 hasarı için sanal tık (Blox Fruits şartı)
 	-- dahili
 	Target = "-",
 	Busy = false,
@@ -262,7 +263,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.1"
+HUB_VERSION = "3.2"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -1577,19 +1578,27 @@ function autoEquip()
 	return pick
 end
 
--- ekrana TIKLAMADAN saldırı: Tool:Activate (imleç oynamaz, GUI'ye tıklamaz)
--- hasar algılanmazsa (Durum > hasar yok) ekranın köşesine SANAL tık gönderir
+-- SANAL tık: gerçek imleci oynatmaz, ekrana basmaz; M1'i engine'e gönderir.
+-- Blox Fruits'ta yumruk/kılıç hasarı CombatFramework'ten geçtiği için gerekli.
 function softClick()
-	if not VU then return end
-	pcall(function()
-		local cam = workspace.CurrentCamera
-		local vp = cam and cam.ViewportSize or Vector2.new(800, 600)
-		local p = Vector2.new(vp.X - 70, vp.Y - 70)
-		VU:CaptureController()
-		VU:Button1Down(p, cam.CFrame)
-		task.wait(0.03)
-		VU:Button1Up(p, cam.CFrame)
-	end)
+	if VU then
+		local ok = pcall(function()
+			VU:CaptureController()
+			VU:ClickButton1(Vector2.new(0, 0))
+		end)
+		if ok then return true end
+		pcall(function()
+			VU:CaptureController()
+			VU:Button1Down(Vector2.new(0, 0))
+			VU:Button1Up(Vector2.new(0, 0))
+		end)
+		return true
+	end
+	if type(mouse1click) == "function" then
+		pcall(mouse1click)
+		return true
+	end
+	return false
 end
 
 -- etkinlik (halloween) -----------------------------------------------
@@ -1738,28 +1747,61 @@ function facePos(p)
 	pcall(function() cam.CFrame = CFrame.lookAt(cam.CFrame.Position, p + Vector3.new(0, 1.5, 0)) end)
 end
 
--- saldırı çekirdeği: bekleme süresi atlama (animation cancel) destekli
+-- saldırı çekirdeği: sanal M1 tık + cooldown/animasyon atlama
 function swing(tool, pos)
 	if pos then facePos(pos) end
-	if not tool then
-		if State.NoDamage then softClick() end
-		return false
-	end
-	if State.FastAttack then
+	if tool then
+		if State.FastAttack then
+			pcall(function()
+				if tool:GetAttribute("Cooldown") ~= nil then tool:SetAttribute("Cooldown", 0) end
+			end)
+		end
 		pcall(function()
-			if tool:GetAttribute("Cooldown") ~= nil then tool:SetAttribute("Cooldown", 0) end
+			if State.Bypass then
+				pcall(function() tool:Deactivate() end)
+			end
+			tool:Activate()
 		end)
 	end
-	pcall(function()
-		if State.Bypass then
-			-- animasyon kilidini kır: deaktive edip hemen tekrar aktive et
-			pcall(function() tool:Deactivate() end)
-		end
-		tool:Activate()
-	end)
-	if State.NoDamage then softClick() end
-	return true
+	-- M1 her durumda gönderilir: hasar CombatFramework'ten geçer
+	if State.ClickAttack ~= false then softClick() end
+	return tool ~= nil
 end
+
+-- CombatFramework'un M1 sayacını sıfırlar: gerçek "cooldown atlama"
+function hookCombat()
+	local gc = getgc or getreg
+	if type(gc) ~= "function" then return false end
+	local ok, list = pcall(gc, true)
+	if not ok or type(list) ~= "table" then return false end
+	local hit = 0
+	for _, v in pairs(list) do
+		if type(v) == "table" then
+			local ac = rawget(v, "activeController")
+			if type(ac) == "table" then
+				pcall(function()
+					ac.attacking = false
+					ac.timeToNextAttack = -math.huge
+					ac.increment = 4
+					ac.blocking = false
+					ac.hitboxMagnitude = math.max(ac.hitboxMagnitude or 0, (State.FarmRange or 32) + 12)
+					ac.currentAttackTrack = 0
+				end)
+				hit = hit + 1
+			end
+		end
+	end
+	State.CombatHooked = hit > 0
+	return hit > 0
+end
+
+task.spawn(function()
+	task.wait(6)
+	while gui.Parent do
+		if State.FastAttack then pcall(hookCombat) end
+		task.wait(0.4)
+	end
+end)
 
 function m1(tool, pos)
 	return swing(tool or equippedTool(), pos)
@@ -2050,23 +2092,23 @@ local mobCache, mobTime = {}, 0
 function collectMobs()
 	local seen, out = {}, {}
 	local function add(m)
-		if seen[m] then return end
+		if seen[m] or not m then return end
 		seen[m] = true
 		out[#out + 1] = m
 	end
-	for _, fname in ipairs({ "Enemies", "Characters", "Mobs", "SeaBeasts", "Bosses" }) do
-		local f = workspace:FindFirstChild(fname)
-		if f then
-			for _, m in ipairs(f:GetChildren()) do
-				if m:IsA("Model") then
-					add(m)
-				elseif m:IsA("Folder") then
-					for _, c in ipairs(m:GetChildren()) do
-						if c:IsA("Model") then add(c) end
-					end
-				end
+	-- iç içe klasör/model yapılarını da tarar (Enemies/Model/Model gibi)
+	local function dig(node, depth)
+		for _, m in ipairs(node:GetChildren()) do
+			if m:IsA("Model") and m:FindFirstChildOfClass("Humanoid") then
+				add(m)
+			elseif depth > 0 and (m:IsA("Folder") or m:IsA("Model")) then
+				dig(m, depth - 1)
 			end
 		end
+	end
+	for _, fname in ipairs({ "Enemies", "Characters", "Mobs", "SeaBeasts", "Bosses" }) do
+		local f = workspace:FindFirstChild(fname)
+		if f then dig(f, 2) end
 	end
 	if #out == 0 then
 		for _, m in ipairs(workspace:GetChildren()) do
@@ -3639,6 +3681,11 @@ do
 	for _, b in ipairs(bindList) do
 		refreshers[#refreshers + 1] = { id = b[1], fn = bindRow(b[1], b[2]) }
 	end
+
+	section(page, "Savaş")
+	toggle(page, "ClickAttack", "Sanal M1 tık (VirtualUser) — hasar için şart", true, function(on)
+		State.ClickAttack = on
+	end)
 
 	section(page, "Güncelleme")
 	updateLabel = newInstance("TextLabel", {
