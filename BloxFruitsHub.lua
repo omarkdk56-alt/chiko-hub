@@ -263,7 +263,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.2"
+HUB_VERSION = "3.3"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -1292,7 +1292,12 @@ function forceSet(pos, hold)
 		pcall(function() r3.AssemblyLinearVelocity = Vector3.zero end)
 		pcall(function() r3.Anchored = false end)
 		pcall(function() h3:ChangeState(Enum.HumanoidStateType.Running) end)
+		-- eski MoveTo hedefi karakteri geri sürüklemesin: hedefi bulunduğu yer yap
+		pcall(function() h3:MoveTo(r3.Position) end)
+		pcall(function() h3:Move(Vector3.zero, false) end)
 	end
+	-- süren tween varsa iptal et (yoksa karakteri geri çeker)
+	cancelTp()
 	return true
 end
 
@@ -1707,10 +1712,22 @@ function eventTick()
 	end
 
 	-- pumpkin canavarıysa vur, değilse dokunma yeterli (temas ile kırılır)
+	-- balkabağı canavarı / etkinlik yaratığı: sanal tık ile kes (yatık olsa da)
+	local tool = equippedTool() or (State.AutoEquip and autoEquip()) or nil
 	local thum = obj:FindFirstChildOfClass("Humanoid")
 	if thum and thum.Health > 0 then
-		local tool = equippedTool() or (State.AutoEquip and autoEquip()) or nil
-		if tool then pcall(function() tool:Activate() end) end
+		swing(tool, p)
+		task.wait(0.05)
+		swing(tool, p)
+	elseif type(firetouchinterest) == "function" then
+		-- temasla kırılan balkabakları (yatık/dönük) için
+		local part = obj:IsA("BasePart") and obj or obj:FindFirstChildWhichIsA("BasePart", true)
+		if part then
+			local bp = ch:FindFirstChild("HumanoidRootPart") or hrp
+			pcall(function() firetouchinterest(bp, part, 0) end)
+			task.wait(0.05)
+			pcall(function() firetouchinterest(bp, part, 1) end)
+		end
 	end
 end
 
@@ -1988,6 +2005,8 @@ end
 breakBusy = false
 function pumpkinBreakTick()
 	if breakBusy then return end
+	-- bir hata olursa kilit takılı kalmasın
+	task.delay(4, function() breakBusy = false end)
 	local ch, hum, hrp = getChar()
 	if not (ch and hum and hrp) then return end
 	local best, bestD
@@ -2089,10 +2108,21 @@ end
 -- Birden fazla kaynağı dener: Enemies / Characters / Mobs klasörleri,
 -- yoksa workspace içindeki humanoidli modeller. Sonuç kısa süre önbelleğe alınır.
 local mobCache, mobTime = {}, 0
+-- oyuncu karakterlerini düşman saymayalım (farm bir oyuncuya kilitlenmesin)
+function isPlayerModel(m)
+	if not m then return false end
+	if Players:GetPlayerFromCharacter(m) then return true end
+	local l = string.lower(m.Name)
+	for _, pl in ipairs(Players:GetPlayers()) do
+		if string.lower(pl.Name) == l then return true end
+	end
+	return false
+end
+
 function collectMobs()
 	local seen, out = {}, {}
 	local function add(m)
-		if seen[m] or not m then return end
+		if seen[m] or not m or isPlayerModel(m) then return end
 		seen[m] = true
 		out[#out + 1] = m
 	end
@@ -2413,8 +2443,9 @@ function auraTick()
 	if not (ch and hum and hrp) or hum.Health <= 0 then return end
 
 	local now = os.clock()
-	local delay = State.Bypass and 0 or State.AttackDelay
-	if State.FastAttack then delay = math.min(delay, 0.03) end
+	local delay = 0.05
+	if State.Bypass then delay = 0.02 end
+	if State.FastAttack then delay = 0.02 end
 	if now - auraLast < delay then return end
 	auraLast = now
 
@@ -2423,6 +2454,7 @@ function auraTick()
 	local canSkill = State.UseSkills and tool and tool:FindFirstChild("RemoteFunction") ~= nil
 
 	local count, nearest, nearestD = 0, nil, nil
+	local targets = {}
 	for _, m in ipairs(mobList()) do
 		if mobAlive(m) then
 			local okFilter = true
@@ -2433,13 +2465,13 @@ function auraTick()
 			if okFilter and d <= State.AuraRange then
 				count = count + 1
 				if State.AuraHold then holdMob(m) end
+				if #targets < 8 then targets[#targets + 1] = pos end
 				if not nearestD or d < nearestD then nearest, nearestD = m, d end
 				if canSkill then
-					for _, k in ipairs({ "Z", "X", "C", "V", "F" }) do
+					for _, k in ipairs({ "Z", "X", "C", "V" }) do
 						if State["Skill" .. k] then useSkill(k, pos) end
 					end
 				end
-				if not State.AuraMulti then break end
 			end
 		end
 	end
@@ -2452,8 +2484,14 @@ function auraTick()
 
 	updateRing()
 
-	-- kamera hedefe dönük olmadan Activate() boşa gider
-	swing(tool, nearest.HumanoidRootPart.Position)
+	-- "drrrr": menzildeki tüm hedeflere peş peşe sanal M1
+	for i = 1, #targets do
+		facePos(targets[i])
+		if tool then pcall(function() tool:Activate() end) end
+		if State.ClickAttack ~= false then softClick() end
+		if i < #targets then task.wait(0.015) end
+	end
+	if #targets == 0 then swing(tool, nearest.HumanoidRootPart.Position) end
 end
 
 -- toplama döngüleri -------------------------------------------------
