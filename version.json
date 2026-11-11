@@ -1,5 +1,5 @@
 {
-  "version": "3.4",
-  "notes": "Cokme korumasi: tik hizi sinirlandi, getgc taramasi seyreltildi, aura hedef sayisi sinirli",
+  "version": "3.5",
+  "notes": "Sandik tarama (workspace.Map) + dokunma ile toplama, saldiri testi, halloween yaratik anahtar kelimeleri",
   "updated": "2026-11-11"
 }

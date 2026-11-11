@@ -263,7 +263,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.4"
+HUB_VERSION = "3.5"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -1615,10 +1615,10 @@ end
 -- Yeni güncellemelerde nesne isimleri değişebiliyor; bu yüzden isim
 -- eşleşmesiyle çalışır: pumpkin, candy, hellfire, ember...
 local EVENT_KEYS = {
-	pumpkin = { "pumpkin" },
-	candy = { "candy", "sweet", "trickortreat", "trick or treat", "bucket" },
-	hellfire = { "hellfire" },
-	misc = { "ember", "soul", "gift", "present", "hallow", "haunted" },
+	pumpkin = { "pumpkin", "jack", "lantern" },
+	candy = { "candy", "sweet", "trickortreat", "trick or treat", "bucket", "caldron", "cauldron" },
+	hellfire = { "hellfire", "hell fire", "rider" },
+	misc = { "ember", "soul", "gift", "present", "hallow", "haunted", "ghoul", "ghost", "witch", "skeleton", "zombie", "bat" },
 }
 
 local function nameHas(n, list)
@@ -2263,22 +2263,37 @@ end
 
 -- sandık / meyve ----------------------------------------------------
 local chestCache, chestTime = {}, 0
+-- Blox Fruits sandıkları workspace.Map içindedir ve DOKUNUNCA açılır.
 function getChests()
 	local now = os.clock()
-	if now - chestTime < 1.5 then return chestCache end
+	if now - chestTime < 1.2 then return chestCache end
 	chestTime = now
 	chestCache = {}
+	local seen = {}
+	local function add(v)
+		if not v or seen[v] then return end
+		seen[v] = true
+		chestCache[#chestCache + 1] = v
+	end
+	local map = workspace:FindFirstChild("Map")
+	if map then
+		for _, v in ipairs(map:GetDescendants()) do
+			if v:IsA("Model") and string.find(string.lower(v.Name), "chest", 1, true) then
+				add(v)
+			end
+		end
+	end
 	for _, v in ipairs(workspace:GetChildren()) do
 		if v:IsA("Model") then
 			if string.find(string.lower(v.Name), "chest", 1, true) then
-				chestCache[#chestCache + 1] = v
+				add(v)
 			else
 				local c = v:FindFirstChild("Chest")
-				if c and c:IsA("Model") then chestCache[#chestCache + 1] = c end
+				if c and c:IsA("Model") then add(c) end
 			end
 		elseif v:IsA("Folder") then
 			local c = v:FindFirstChild("Chest", true)
-			if c and c:IsA("Model") then chestCache[#chestCache + 1] = c end
+			if c and c:IsA("Model") then add(c) end
 		end
 	end
 	return chestCache
@@ -2303,6 +2318,51 @@ function fruitPos(fruit)
 	local p = fruit:FindFirstChild("Handle") or fruit.PrimaryPart or fruit:FindFirstChildWhichIsA("BasePart", true)
 	return p and p.Position
 end
+
+-- temasla toplama: sandık ve meyve dokununca alınır (prompt her zaman yok)
+function touchCollect(inst)
+	if type(firetouchinterest) ~= "function" then return false end
+	local _, _, hrp = getChar()
+	if not (inst and hrp) then return false end
+	local part = inst:IsA("BasePart") and inst
+		or inst:FindFirstChild("Handle")
+		or inst:FindFirstChildWhichIsA("BasePart", true)
+	if not part then return false end
+	pcall(function() firetouchinterest(hrp, part, 0) end)
+	task.wait(0.05)
+	pcall(function() firetouchinterest(hrp, part, 1) end)
+	return true
+end
+
+-- yakındaki sandık/meyveye dokunma döngüsü (AutoChest / AutoFruit)
+task.spawn(function()
+	while gui.Parent do
+		task.wait(0.35)
+		if State.AutoChest or State.AutoFruit then
+			local _, _, hrp = getChar()
+			if hrp then
+				if State.AutoChest then
+					for _, c in ipairs(getChests()) do
+						local p = chestPos(c)
+						if p and (p - hrp.Position).Magnitude < 16 then
+							touchCollect(c)
+							break
+						end
+					end
+				end
+				if State.AutoFruit then
+					for _, f in ipairs(getFruits()) do
+						local p = fruitPos(f)
+						if p and (p - hrp.Position).Magnitude < 16 then
+							touchCollect(f)
+							break
+						end
+					end
+				end
+			end
+		end
+	end
+end)
 
 --===================================================================
 -- 5) FARM DÖNGÜSÜ
@@ -3566,6 +3626,26 @@ do
 	button(page, "Workspace isimlerini kopyala", function()
 		if copyText(workspaceNames()) then notify("Liste kopyalandı") end
 	end)
+	button(page, "Saldırı testi (hasar ölç)", function()
+		local mob = nearestMob(nil)
+		if not mob then notify("Menzilde düşman yok") return end
+		local mhum = mob:FindFirstChildOfClass("Humanoid")
+		local before = mhum and mhum.Health or 0
+		local tool = equippedTool() or (State.AutoEquip and autoEquip()) or nil
+		tpAt(mob.HumanoidRootPart.Position + Vector3.new(0, 2, 4))
+		for _ = 1, 12 do
+			swing(tool, mob.HumanoidRootPart.Position)
+			task.wait(0.12)
+		end
+		local after = mhum and mhum.Health or 0
+		local dealt = math.floor(before - after)
+		local msg = "Hasar: " .. tostring(dealt) .. "  •  tool: " .. tostring(tool and tool.Name or "yok")
+			.. "  •  VU: " .. (VU and "var" or "yok")
+		if dealt <= 0 then
+			msg = msg .. "  •  SANAL TIK İŞLEMİYOR"
+		end
+		notify(msg)
+	end, true)
 	button(page, "Sağlık kontrolü yap", function()
 		local msg = {}
 		if not CommF then msg[#msg + 1] = "CommF yok" end
