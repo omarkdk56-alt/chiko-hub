@@ -39,7 +39,8 @@ local function fetch(u)
 	return nil
 end
 
-local CDN = "https://cdn.jsdelivr.net/gh/omarkdk56-alt/chiko-hub@main/BloxFruitsHub.lua"
+local REPO = "omarkdk56-alt/chiko-hub"
+local CDN_MAIN = "https://cdn.jsdelivr.net/gh/" .. REPO .. "@main/BloxFruitsHub.lua"
 
 local function runFrom(u, tag)
 	local src = fetch(u)
@@ -60,13 +61,23 @@ local function runFrom(u, tag)
 	return true
 end
 
+-- en son commit SHA'sını API'den al (jsDelivr'in eski önbelleğini atlatır)
+local function latestSha()
+	local body = fetch("https://api.github.com/repos/" .. REPO .. "/commits/main?t=" .. tostring(os.time()))
+	if not body then return nil end
+	return string.match(body, '"sha"%s*:%s*"([a-f0-9]+)"')
+end
+
 local ts = tostring(os.time())
 if runFrom(URL .. "?t=" .. ts, "github") then return end
+if runFrom(CDN_MAIN .. "?t=" .. ts, "jsdelivr-main") then return end
 
--- GitHub önbelleği eski/bozuk sürüm verdiyse jsDelivr'den dene
-if runFrom(CDN .. "?t=" .. ts, "jsdelivr") then return end
+local sha = latestSha()
+if sha then
+	if runFrom("https://cdn.jsdelivr.net/gh/" .. REPO .. "@" .. sha .. "/BloxFruitsHub.lua", "jsdelivr-sha") then return end
+end
 
-warn("[Chiko] iki kaynaktan da yüklenemedi. Linkleri kontrol et.")
+warn("[Chiko] yüklenemedi. Linkleri kontrol et.")
 pcall(function()
 	game:GetService("StarterGui"):SetCore("SendNotification", {
 		Title = "Chiko Hub",
