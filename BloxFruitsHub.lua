@@ -266,7 +266,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.8"
+HUB_VERSION = "3.9"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -1652,6 +1652,16 @@ function autoEquip()
 	if not pick then return nil end
 	lastEquip = os.clock()
 	pcall(function() hum:EquipTool(pick) end)
+	-- kuşanma bitmeden Activate() çağrılırsa hasar gitmiyordu: doğrula
+	for _ = 1, 10 do
+		local cur = ch:FindFirstChild(pick.Name)
+		if cur and cur:IsA("Tool") then return cur end
+		task.wait(0.03)
+	end
+	pcall(function() pick.Parent = ch end)
+	task.wait(0.05)
+	local cur = ch:FindFirstChild(pick.Name)
+	if cur and cur:IsA("Tool") then return cur end
 	return pick
 end
 
@@ -1850,6 +1860,13 @@ end
 -- saldırı çekirdeği: sanal M1 tık + cooldown/animasyon atlama
 function swing(tool, pos)
 	if pos then facePos(pos) end
+	if tool and State.AutoEquip then
+		local ch2, hum2 = getChar()
+		if ch2 and tool.Parent ~= ch2 then
+			pcall(function() hum2:EquipTool(tool) end)
+			task.wait(0.05)
+		end
+	end
 	if tool then
 		if State.FastAttack then
 			pcall(function()
@@ -2130,6 +2147,8 @@ function pumpkinBreakTick()
 			local prompt = best:FindFirstChildWhichIsA("ProximityPrompt", true)
 			if prompt then firePrompt(prompt) end
 		end)
+		-- yatık/dönük balkabakları temasla kırılır
+		touchCollect(best)
 		local tool = equippedTool() or (State.AutoEquip and autoEquip()) or nil
 		if tool then
 			swing(tool, p)
@@ -2478,6 +2497,15 @@ local function farmTick()
 			-- görev verisi yoksa: düşmanların olduğu bölgeye atla (boş boş durmasın)
 			local enemies = workspace:FindFirstChild("Enemies")
 			local kids = enemies and enemies:GetChildren() or {}
+			if #kids == 0 then
+				-- Enemies klasörü boşsa haritadaki herhangi bir yaratığa git
+				for _, m in ipairs(workspace:GetChildren()) do
+					if m:IsA("Model") and m:FindFirstChildOfClass("Humanoid") and not isPlayerModel(m) then
+						kids = { m }
+						break
+					end
+				end
+			end
 			if #kids > 0 then
 				farmTick.zoneTp = os.clock()
 				local pick = kids[math.random(1, #kids)]
@@ -2609,6 +2637,11 @@ function auraTick()
 	auraLast = now
 
 	local tool = equippedTool() or (State.AutoEquip and autoEquip()) or nil
+	local ch0 = getChar()
+	if tool and ch0 and tool.Parent ~= ch0 then
+		local _, hum0 = getChar()
+		if hum0 then pcall(function() hum0:EquipTool(tool) end) end
+	end
 	local range = State.AuraRange or 40
 	local mobs, count, nearest, nearestD = {}, 0, nil, nil
 	for _, m in ipairs(mobList()) do
@@ -4025,7 +4058,7 @@ end
 --===================================================================
 task.spawn(function()
 	while gui.Parent do
-		if State.AutoFarm and not State.Busy then
+		if State.AutoFarm then
 			pcall(farmTick)
 		end
 		task.wait(0.05)

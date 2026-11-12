@@ -1,5 +1,5 @@
 {
-  "version": "3.8",
-  "notes": "Guvenli mod varsayilan acik: getgc hook kapali, aura 2 hedef/0.2s, etkinlik taramasi seyrek",
+  "version": "3.9",
+  "notes": "Farm Busy kilidi kaldirildi, silah kusanma dogrulandi, balkabaklarina dokunma, Enemies bos ise haritadan hedef",
   "updated": "2026-11-11"
 }
