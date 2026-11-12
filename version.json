@@ -1,5 +1,5 @@
 {
-  "version": "3.9",
-  "notes": "Farm Busy kilidi kaldirildi, silah kusanma dogrulandi, balkabaklarina dokunma, Enemies bos ise haritadan hedef",
+  "version": "3.10",
+  "notes": "Farm panelinde canli durum: hedef mob, liste sayisi, silah, son islem, son hata",
   "updated": "2026-11-11"
 }

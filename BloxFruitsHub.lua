@@ -266,7 +266,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.9"
+HUB_VERSION = "3.10"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -2345,6 +2345,7 @@ local function ensureQuest()
 		tpAt(def.pos)
 		task.wait(0.35)
 	end
+	lastFarmAction = "görev alınıyor: " .. tostring(def.quest) .. " / " .. tostring(def.mon)
 	invoke("StartQuest", def.quest, def.num)
 	task.wait(0.25)
 
@@ -2488,6 +2489,7 @@ local function farmTick()
 
 	if not mob then
 		State.Target = "düşman yok"
+		lastFarmAction = "düşman yok — bölgeye gidiliyor"
 		-- görev bölgesine git ki moblar oluşsun (en fazla 2 sn'de bir, yoksa TP spam'i)
 		if def and (hrp.Position - def.pos).Magnitude > 120
 			and os.clock() - (farmTick.zoneTp or 0) > 2 then
@@ -2522,6 +2524,7 @@ local function farmTick()
 	local dist = (mpos - hrp.Position).Magnitude
 
 	if dist > State.FarmRange then
+		lastFarmAction = "yaklaşıyor: " .. mob.Name .. " (" .. tostring(math.floor(dist)) .. " stud)"
 		approach(mpos)
 		return
 	end
@@ -2539,6 +2542,7 @@ local function farmTick()
 		end)
 	end
 
+	lastFarmAction = "vuruyor: " .. mob.Name
 	attackTarget(mob)
 end
 
@@ -3317,6 +3321,20 @@ do
 		end
 	end)
 
+	farmStatusLabel = label(page, "Durum: --", Theme.sub)
+	task.spawn(function()
+		while farmStatusLabel.Parent do
+			local tool = equippedTool()
+			farmStatusLabel.Text = "Hedef: " .. tostring(State.Target or "-")
+				.. "  •  Listede: " .. tostring(#mobList())
+				.. "  •  Silah: " .. tostring(tool and tool.Name or "yok")
+				.. "
+Son işlem: " .. tostring(lastFarmAction or "-")
+				.. "  •  Hata: " .. tostring(lastFarmError or "yok")
+			task.wait(0.5)
+		end
+	end)
+
 	section(page, "Saldırı")
 	cycle(page, "Saldırı modu", { "Otomatik", "M1", "Meyve Skill", "Kılıç Skill" }, State.AttackMode, function(v)
 		State.AttackMode = v
@@ -4059,7 +4077,8 @@ end
 task.spawn(function()
 	while gui.Parent do
 		if State.AutoFarm then
-			pcall(farmTick)
+			local ok, err = pcall(farmTick)
+			if not ok then lastFarmError = tostring(err) end
 		end
 		task.wait(0.05)
 	end
