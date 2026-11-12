@@ -39,29 +39,38 @@ local function fetch(u)
 	return nil
 end
 
+local CDN = "https://cdn.jsdelivr.net/gh/omarkdk56-alt/chiko-hub@main/BloxFruitsHub.lua"
+
+local function runFrom(u, tag)
+	local src = fetch(u)
+	if not src then
+		warn("[Chiko] indirilemedi (" .. tag .. ")")
+		return false
+	end
+	local chunk, err = loadstring(src, "=ChikoHub")
+	if not chunk then
+		warn("[Chiko] sözdizimi hatası (" .. tag .. "): " .. tostring(err))
+		return false
+	end
+	local ok, runErr = pcall(chunk)
+	if not ok then
+		warn("[Chiko] çalışma hatası (" .. tag .. "): " .. tostring(runErr))
+		return false
+	end
+	return true
+end
+
 local ts = tostring(os.time())
-local src = fetch(URL .. "?t=" .. ts) or fetch(URL)
+if runFrom(URL .. "?t=" .. ts, "github") then return end
 
-if not src then
-	warn("[Chiko] script indirilemedi: " .. URL)
-	warn("[Chiko] link public mi? KULLANICI/REPO kısmını kendi linkinle değiştirdin mi?")
-	pcall(function()
-		game:GetService("StarterGui"):SetCore("SendNotification", {
-			Title = "Chiko Hub",
-			Text = "Script indirilemedi — GitHub linkini kontrol et.",
-			Duration = 8,
-		})
-	end)
-	return
-end
+-- GitHub önbelleği eski/bozuk sürüm verdiyse jsDelivr'den dene
+if runFrom(CDN .. "?t=" .. ts, "jsdelivr") then return end
 
-local chunk, err = loadstring(src, "=ChikoHub")
-if not chunk then
-	warn("[Chiko] sözdizimi hatası: " .. tostring(err))
-	return
-end
-
-local ok, runErr = pcall(chunk)
-if not ok then
-	warn("[Chiko] çalışma hatası: " .. tostring(runErr))
-end
+warn("[Chiko] iki kaynaktan da yüklenemedi. Linkleri kontrol et.")
+pcall(function()
+	game:GetService("StarterGui"):SetCore("SendNotification", {
+		Title = "Chiko Hub",
+		Text = "Script yüklenemedi — GitHub/jsDelivr erişimi yok.",
+		Duration = 8,
+	})
+end)
