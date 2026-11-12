@@ -191,6 +191,7 @@ local State = {
 	SpeedCap = 200,            -- uçuş / ışınlanma / dash üst sınırı
 	ClickAttack = true,        -- M1 hasarı için sanal tık (Blox Fruits şartı)
 	AuraTP = true,             -- Kill Aura hedefe ışınlanıp vurur (gerçekten çalışan mod)
+	SafeMode = true,           -- çökme önleme: ağır tarama/hook'lar kapalı, daha yavaş tempo
 	ClickMethod = "?",         -- hangi tık yöntemi çalıştı (teşhis için)
 	-- dahili
 	Target = "-",
@@ -265,7 +266,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.7"
+HUB_VERSION = "3.8"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -1738,14 +1739,14 @@ end
 local eventCache, eventTime = {}, 0
 function getEventObjects()
 	local now = os.clock()
-	if now - eventTime < 1.2 then return eventCache end
+	if now - eventTime < (State.SafeMode and 2.5 or 1.2) then return eventCache end
 	eventTime = now
 	eventCache = {}
 	local count = 0
 	local function scan(container)
 		for _, v in ipairs(container:GetChildren()) do
 			count = count + 1
-			if count > 900 then return end
+			if count > (State.SafeMode and 400 or 900) then return end
 			if eventKind(v.Name) and collectPos(v) then
 				eventCache[#eventCache + 1] = v
 			elseif v:IsA("Model") or v:IsA("Folder") then
@@ -1903,7 +1904,7 @@ end
 task.spawn(function()
 	task.wait(6)
 	while gui.Parent do
-		if State.FastAttack then pcall(hookCombat) end
+		if State.FastAttack and not State.SafeMode then pcall(hookCombat) end
 		task.wait(1.2)
 	end
 end)
@@ -2602,6 +2603,7 @@ function auraTick()
 
 	local now = os.clock()
 	local delay = State.AuraTP and 0.12 or 0.07
+	if State.SafeMode then delay = math.max(delay, 0.2) end
 	if State.FastAttack then delay = 0.09 end
 	if now - auraLast < delay then return end
 	auraLast = now
@@ -2619,7 +2621,7 @@ function auraTick()
 			if okFilter and d <= range then
 				count = count + 1
 				if not nearestD or d < nearestD then nearest, nearestD = m, d end
-				if #mobs < 4 then mobs[#mobs + 1] = m end
+				if #mobs < (State.SafeMode and 2 or 4) then mobs[#mobs + 1] = m end
 			end
 		end
 	end
@@ -3926,6 +3928,10 @@ do
 	toggle(page, "ClickAttack", "Sanal M1 tık (VirtualUser) — hasar için şart", true, function(on)
 		State.ClickAttack = on
 	end)
+	toggle(page, "SafeMode", "Güvenli mod (çökme önleme, önerilir)", true, function(on)
+		State.SafeMode = on
+		if on then notify("Güvenli mod açık: ağır taramalar kapalı") end
+	end)
 
 	section(page, "Güncelleme")
 	updateLabel = newInstance("TextLabel", {
@@ -4349,6 +4355,9 @@ TS:Create(main, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.
 }):Play()
 
 notify("CHIKO HUB v" .. HUB_VERSION .. " hazır. INSERT ile menü.")
+if State.SafeMode then
+	notify("Güvenli mod açık — çökme riski düşük. Hız için Ayarlar > Güvenli mod kapat.")
+end
 
 -- otomatik sürüm kontrolü: açılışta ve 15 dakikada bir
 task.spawn(function()

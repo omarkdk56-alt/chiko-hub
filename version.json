@@ -1,5 +1,5 @@
 {
-  "version": "3.7",
-  "notes": "Kill Aura TP modu (hedefe isinlanip vurur), 3lu tik yontemi, teshisde tik yontemi",
+  "version": "3.8",
+  "notes": "Guvenli mod varsayilan acik: getgc hook kapali, aura 2 hedef/0.2s, etkinlik taramasi seyrek",
   "updated": "2026-11-11"
 }
