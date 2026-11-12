@@ -1,6 +1,6 @@
 --[[
 =====================================================================
-  Blox Fruits Hub  v3.13
+  Blox Fruits Hub  v3.14
   Tek dosya, harici kütüphane yok.
   Kısayol: INSERT -> menüyü aç / kapat
   Tuş atamalarını "Ayarlar" sekmesinden değiştirebilirsin.
@@ -271,7 +271,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.13"
+HUB_VERSION = "3.14"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -2511,6 +2511,14 @@ function getChests()
 		seen[v] = true
 		chestCache[#chestCache + 1] = v
 	end
+	-- GERÇEK DÜZEN: sandıklar workspace kökünde "Chest1"/"Chest2"/"Chest3"
+	-- isimli BasePart'lardır ve dokununca açılır (REDZ/piyasa hub'ları böyle arıyor)
+	for _, v in ipairs(workspace:GetChildren()) do
+		if v:IsA("BasePart") and v.Transparency < 1
+			and (v.Name == "Chest1" or v.Name == "Chest2" or v.Name == "Chest3") then
+			add(v)
+		end
+	end
 	local map = workspace:FindFirstChild("Map")
 	if map then
 		for _, v in ipairs(map:GetDescendants()) do
@@ -2536,6 +2544,7 @@ function getChests()
 end
 
 function chestPos(chest)
+	if chest:IsA("BasePart") then return chest.Position end
 	local p = chest.PrimaryPart or chest:FindFirstChildWhichIsA("BasePart", true)
 	return p and p.Position
 end
@@ -2544,6 +2553,8 @@ function getFruits()
 	local out = {}
 	for _, v in ipairs(workspace:GetChildren()) do
 		if string.find(v.Name, "Fruit") and (v:IsA("Tool") or v:IsA("Model")) then
+			out[#out + 1] = v
+		elseif v:IsA("Tool") and (v.ToolTip == "Blox Fruit" or v.ToolTip == "Fruit") then
 			out[#out + 1] = v
 		end
 	end
@@ -2668,9 +2679,24 @@ local function farmTick()
 	end
 
 	if State.BringMobs then
-		pcall(function()
-			mob.HumanoidRootPart.CFrame = hrp.CFrame * CFrame.new(0, 0, -4)
-		end)
+		-- menzildeki birden fazla mobu önüne dizer: hem hasar hem kill sayacı hızlanır
+		local brought = 0
+		for _, m in ipairs(mobList()) do
+			if brought >= 4 then break end
+			if mobAlive(m) and (m.HumanoidRootPart.Position - hrp.Position).Magnitude <= (State.FarmRange or 32) + 8 then
+				brought = brought + 1
+				pcall(function()
+					local rp = m.HumanoidRootPart
+					rp.CFrame = hrp.CFrame * CFrame.new(brought * 1.6 - 3, 0, -4)
+					rp.CanCollide = false
+					local h = m:FindFirstChildOfClass("Humanoid")
+					if h then
+						h.WalkSpeed = 0
+						h.JumpPower = 0
+					end
+				end)
+			end
+		end
 	end
 
 	if State.FreezeMobs then
@@ -2778,6 +2804,7 @@ function auraTick()
 	if now - auraLast < delay then return end
 	auraLast = now
 
+	if State.AutoHaki then ensureHaki() end
 	local tool = equippedTool() or (State.AutoEquip and autoEquip()) or nil
 	local ch0 = getChar()
 	if tool and ch0 and tool.Parent ~= ch0 then
@@ -2820,6 +2847,12 @@ function auraTick()
 					pcall(function() r2.CFrame = target.CFrame * CFrame.new(0, 0, 4.5) end)
 				end
 				facePos(target.Position)
+				if State.BringMobs then
+					pcall(function()
+						target.CFrame = r2.CFrame * CFrame.new(0, 0, -3)
+						target.CanCollide = false
+					end)
+				end
 				if State.AuraHold then holdMob(m) end
 				if tool then pcall(function() tool:Activate() end) end
 				if State.BladeHit then pcall(bladeHit, (State.AuraRange or 40) + 20) end

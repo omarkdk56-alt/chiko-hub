@@ -1,5 +1,5 @@
 {
-  "version": "3.13",
-  "notes": "Hasar cekirdegi tersine muhendislikle yenilendi: RigLib.getBladeHits + RigControllerEvent(hit) + activeController cooldown sifirlama, Button1Down tik",
+  "version": "3.14",
+  "notes": "Sandik/meyve tespiti gercek oyun duzenine gore (Chest1/2/3 BasePart, ToolTip Blox Fruit), mob bring + aura haki",
   "updated": "2026-11-12"
 }
