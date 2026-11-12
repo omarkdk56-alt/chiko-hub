@@ -8,6 +8,7 @@
 ]]
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
+local RS = game:GetService("ReplicatedStorage")
 
 local out = {}
 local function add(s)
@@ -154,6 +155,43 @@ else
 	add("m1_mouse1click=" .. tostring(damageOf(target, clickMouse)))
 	add("m1_vim=" .. tostring(damageOf(target, clickVIM)))
 	add("m1_combined=" .. tostring(damageOf(target, function() activate(); clickVU() end)))
+end
+
+-- GERÇEK hasar yolu: RigLib.getBladeHits + RigControllerEvent("hit")
+add("=== BLADE HIT TEST ===")
+local function bladeOnce()
+	local ch = LP.Character
+	local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+	if not (ch and hrp) then return end
+	pcall(function()
+		local cf = RS:FindFirstChild("CombatFramework")
+		local rigLib = cf and cf:FindFirstChild("RigLib")
+		local ev = RS:FindFirstChild("RigControllerEvent")
+		add("rigLib=" .. tostring(rigLib ~= nil) .. " rigEvent=" .. tostring(ev ~= nil))
+		if not (rigLib and ev) then return end
+		local hits = require(rigLib).getBladeHits(ch, { hrp }, 60)
+		add("getBladeHits=" .. tostring(type(hits) == "table" and #hits or "nil"))
+		if type(hits) ~= "table" or #hits == 0 then return end
+		local ac = nil
+		pcall(function()
+			local mod = require(LP.PlayerScripts:WaitForChild("CombatFramework", 3))
+			if type(debug.getupvalues) == "function" then
+				for _, up in pairs(debug.getupvalues(mod)) do
+					if type(up) == "table" and type(up.activeController) == "table" then ac = up.activeController end
+				end
+			end
+		end)
+		add("activeController=" .. tostring(ac ~= nil))
+		if ac and ac.blades and ac.blades[1] then
+			pcall(function() ev:FireServer("weaponChange", tostring(ac.blades[1])) end)
+		end
+		for i = 1, #hits do ev:FireServer("hit", hits, i, "") end
+	end)
+end
+if target then
+	add("blade_hit=" .. tostring(damageOf(target, bladeOnce)))
+else
+	add("blade_hit=hedef yok")
 end
 
 add("=== END ===")

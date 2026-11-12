@@ -1,6 +1,6 @@
 --[[
 =====================================================================
-  Blox Fruits Hub  v3.1
+  Blox Fruits Hub  v3.13
   Tek dosya, harici kütüphane yok.
   Kısayol: INSERT -> menüyü aç / kapat
   Tuş atamalarını "Ayarlar" sekmesinden değiştirebilirsin.
@@ -194,6 +194,10 @@ local State = {
 	SafeMode = true,           -- çökme önleme: ağır tarama/hook'lar kapalı, daha yavaş tempo
 	HardTp = false,            -- true: TP sırasında Anchored+Physics (karakteri kilitler)
 	ClickMethod = "?",         -- hangi tık yöntemi çalıştı (teşhis için)
+	FastAttack = true,         -- CombatFramework cooldown sıfırlama (gerçek hub yöntemi)
+	BladeHit = true,           -- RigLib.getBladeHits + RigControllerEvent("hit") = GERÇEK hasar
+	CombatPath = "?",          -- activeController'a hangi yoldan ulaşıldı (teşhis)
+	BladeHits = 0,             -- son blade hit'te bulunan hedef sayısı
 	-- dahili
 	Target = "-",
 	Busy = false,
@@ -267,7 +271,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.12"
+HUB_VERSION = "3.13"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -1689,13 +1693,18 @@ function softClick()
 	local nowClick = os.clock()
 	if nowClick - (clickAt or 0) < 0.05 then return false end
 	clickAt = nowClick
-	-- 1) VirtualUser (en sağlıklı)
+	-- 1) VirtualUser:Button1Down(math.huge) -- piyasa hub'larının kullandığı çağrı
 	if VU then
 		local ok = pcall(function()
 			VU:CaptureController()
+			VU:Button1Down(Vector2.new(math.huge, math.huge))
+		end)
+		if ok then State.ClickMethod = "VU.Button1Down" return true end
+		local ok2 = pcall(function()
+			VU:CaptureController()
 			VU:ClickButton1(Vector2.new(0, 0))
 		end)
-		if ok then State.ClickMethod = "VirtualUser" return true end
+		if ok2 then State.ClickMethod = "VU.ClickButton1" return true end
 	end
 	-- 2) executor mouse1click
 	if type(mouse1click) == "function" then
@@ -1896,49 +1905,161 @@ function swing(tool, pos)
 			tool:Activate()
 		end)
 	end
-	-- M1 her durumda gönderilir: hasar CombatFramework'ten geçer
+	-- ASIL hasar: RigLib blade hit (diğer hub'ların kullandığı yol)
+	if State.BladeHit then pcall(bladeHit, (State.FarmRange or 32) + 30) end
+	-- yedek: M1 tık
 	if State.ClickAttack ~= false then softClick() end
 	return tool ~= nil
 end
 
--- CombatFramework'un M1 sayacını sıfırlar: gerçek "cooldown atlama"
-function hookCombat()
+--===================================================================
+-- GERÇEK HASAR ÇEKİRDEĞİ (tersine mühendislik sonucu)
+-- Çalışan Blox Fruits hub'ları hasarı tıklamayla değil şu zincirle verir:
+--   activeController <- require(PlayerScripts.CombatFramework) + debug.getupvalues(...)
+--   hasar            <- require(ReplicatedStorage.CombatFramework.RigLib).getBladeHits(...)
+--   gönderim         <- ReplicatedStorage.RigControllerEvent:FireServer("hit", hits, i, "")
+-- Üstüne cooldown alanları sıfırlanır: timeToNextAttack / increment / currentAttackTrack
+--===================================================================
+combatAC = nil
+combatACAt = 0
+
+local function findACInTable(v)
+	if type(v) == "table" and type(rawget(v, "activeController")) == "table" then
+		return rawget(v, "activeController")
+	end
+	return nil
+end
+
+function getAC()
+	local nowAC = os.clock()
+	if combatAC and nowAC - (combatACAt or 0) < 5 then return combatAC end
+
+	-- YOL 1: require(Player.PlayerScripts.CombatFramework) -> upvalue tablosu
+	local ok1, ac1 = pcall(function()
+		local mod = require(LP.PlayerScripts:WaitForChild("CombatFramework", 5))
+		if type(mod) ~= "table" then return nil end
+		local direct = findACInTable(mod)
+		if direct then return direct end
+		if type(debug.getupvalues) == "function" then
+			for _, up in pairs(debug.getupvalues(mod)) do
+				local found = findACInTable(up)
+				if found then return found end
+			end
+		end
+		return nil
+	end)
+	if ok1 and ac1 then
+		combatAC, combatACAt = ac1, nowAC
+		State.CombatPath = "require+getupvalues"
+		return ac1
+	end
+
+	-- YOL 2: getupvalue tek tek
+	local ok2, ac2 = pcall(function()
+		local mod = require(LP.PlayerScripts:WaitForChild("CombatFramework", 3))
+		if type(debug.getupvalue) ~= "function" then return nil end
+		for i = 1, 12 do
+			local okU, up = debug.getupvalue(mod, i)
+			if okU and up == nil then break end
+			local found = findACInTable(up)
+			if found then return found end
+		end
+		return nil
+	end)
+	if ok2 and ac2 then
+		combatAC, combatACAt = ac2, nowAC
+		State.CombatPath = "require+getupvalue"
+		return ac2
+	end
+
+	-- YOL 3: getgc taraması (pahalı: 3 saniyede bir, sınırlı)
 	local gc = getgc or getreg
-	if type(gc) ~= "function" then return false end
-	-- getgc taraması ağırdır: en fazla 1.2 saniyede bir, sınırlı tarama
-	local nowH = os.clock()
-	if nowH - (hookCombat.next or 0) < 1.2 then return false end
-	hookCombat.next = nowH
-	local ok, list = pcall(gc, true)
-	if not ok or type(list) ~= "table" then return false end
-	local hit, scanned = 0, 0
-	for _, v in pairs(list) do
-		scanned = scanned + 1
-		if scanned > 12000 then break end
-		if type(v) == "table" then
-			local ac = rawget(v, "activeController")
-			if type(ac) == "table" then
-				pcall(function()
-					ac.attacking = false
-					ac.timeToNextAttack = -math.huge
-					ac.increment = 4
-					ac.blocking = false
-					ac.hitboxMagnitude = math.max(ac.hitboxMagnitude or 0, math.max(State.FarmRange or 32, State.AuraRange or 40) + 12)
-					ac.currentAttackTrack = 0
-				end)
-				hit = hit + 1
+	if type(gc) == "function" and nowAC - (combatGCAt or 0) > 3 then
+		combatGCAt = nowAC
+		local ok3, list = pcall(gc, true)
+		if ok3 and type(list) == "table" then
+			local scanned = 0
+			for _, v in pairs(list) do
+				scanned = scanned + 1
+				if scanned > 15000 then break end
+				local found = findACInTable(v)
+				if found then
+					combatAC, combatACAt = found, nowAC
+					State.CombatPath = "getgc"
+					return found
+				end
 			end
 		end
 	end
-	State.CombatHooked = hit > 0
-	return hit > 0
+	State.CombatPath = "yok"
+	return combatAC
+end
+
+-- Cooldown / vuruş alanlarını sıfırlar (fast attack)
+function patchCombat()
+	local ac = getAC()
+	if not ac then return false end
+	pcall(function()
+		if ac.increment ~= 3 then ac.increment = 3 end
+		if ac.timeToNextAttack ~= 0 then ac.timeToNextAttack = 0 end
+		if ac.timeToNextBlock ~= 0 then ac.timeToNextBlock = 0 end
+		if ac.focusStart ~= 0 then ac.focusStart = 0 end
+		if ac.attacking ~= false then ac.attacking = false end
+		if ac.blocking ~= false then ac.blocking = false end
+		if ac.currentAttackTrack ~= 0 then ac.currentAttackTrack = 0 end
+		local mag = math.max(ac.hitboxMagnitude or 0, 60)
+		if ac.hitboxMagnitude ~= mag then ac.hitboxMagnitude = mag end
+		if ac.humanoid and ac.humanoid.AutoRotate ~= true then ac.humanoid.AutoRotate = true end
+	end)
+	pcall(function()
+		if type(sethiddenproperty) == "function" then
+			sethiddenproperty(LP, "SimulationRaxNerous", math.huge)
+		end
+	end)
+	State.CombatHooked = true
+	return true
+end
+
+-- ASIL HASAR: oyunun kendi hit listesini üretip sunucuya "hit" gönderir
+function bladeHit(range)
+	local ch, hum, hrp = getChar()
+	if not (ch and hrp) then return false end
+	local rng = range or ((State.FarmRange or 32) + 30)
+	local sent = false
+	pcall(function()
+		local cfFolder = RS:FindFirstChild("CombatFramework")
+		local rigLib = cfFolder and cfFolder:FindFirstChild("RigLib")
+		local ev = RS:FindFirstChild("RigControllerEvent")
+		if not (rigLib and ev) then return end
+		local hits = require(rigLib).getBladeHits(ch, { hrp }, rng)
+		if type(hits) ~= "table" or #hits == 0 then
+			State.BladeHits = 0
+			return
+		end
+		local ac = getAC()
+		local blade = ac and ac.blades and ac.blades[1]
+		if blade then
+			pcall(function() ev:FireServer("weaponChange", tostring(blade)) end)
+		end
+		for i = 1, #hits do
+			ev:FireServer("hit", hits, i, "")
+		end
+		State.BladeHits = #hits
+		sent = true
+	end)
+	return sent
+end
+
+-- eski isim korunuyor
+function hookCombat()
+	return patchCombat()
 end
 
 task.spawn(function()
-	task.wait(6)
+	task.wait(3)
 	while gui.Parent do
-		if State.FastAttack and not State.SafeMode then pcall(hookCombat) end
-		task.wait(1.2)
+		if State.FastAttack or State.BladeHit then pcall(patchCombat) end
+		task.wait(State.SafeMode and 0.5 or 0.15)
 	end
 end)
 
@@ -1961,6 +2082,7 @@ function attackTarget(mob)
 	if pos and (pos - hrp.Position).Magnitude > State.FarmRange + 8 then return end
 
 	lastAttack = now
+	if State.FastAttack then pcall(patchCombat) end
 	local tool = equippedTool() or (State.AutoEquip and autoEquip()) or nil
 	local mode = State.AttackMode
 
@@ -2700,6 +2822,7 @@ function auraTick()
 				facePos(target.Position)
 				if State.AuraHold then holdMob(m) end
 				if tool then pcall(function() tool:Activate() end) end
+				if State.BladeHit then pcall(bladeHit, (State.AuraRange or 40) + 20) end
 				if State.ClickAttack ~= false then softClick() end
 				task.wait(0.03)
 			end
@@ -2709,6 +2832,7 @@ function auraTick()
 		if pos then
 			facePos(pos)
 			if tool then pcall(function() tool:Activate() end) end
+			if State.BladeHit then pcall(bladeHit, (State.AuraRange or 40) + 20) end
 			if State.ClickAttack ~= false then softClick() end
 		end
 	end
@@ -3248,6 +3372,7 @@ local function diagReport()
 		"Aktif farm hedefi: " .. tostring(State.Target),
 		"Işınlanma: " .. (State.TpInfo ~= "" and State.TpInfo or "henüz denenmedi"),
 		"Tık yöntemi: " .. tostring(State.ClickMethod or "?"),
+		"Combat erişimi: " .. tostring(State.CombatPath or "?") .. " | son blade hit: " .. tostring(State.BladeHits or 0),
 	}
 	return table.concat(lines, "\n")
 end
@@ -3995,6 +4120,13 @@ do
 	section(page, "Savaş")
 	toggle(page, "ClickAttack", "Sanal M1 tık (VirtualUser) — hasar için şart", true, function(on)
 		State.ClickAttack = on
+	end)
+	toggle(page, "BladeHit", "Blade Hit — gerçek hasar yolu (RigLib + RigControllerEvent)", true, function(on)
+		State.BladeHit = on
+		if on then notify("Blade Hit açık: hasar oyunun kendi modülünden gidiyor") end
+	end)
+	toggle(page, "FastAttack", "Hızlı vuruş (cooldown sıfırlama)", true, function(on)
+		State.FastAttack = on
 	end)
 	toggle(page, "SafeMode", "Güvenli mod (çökme önleme, önerilir)", true, function(on)
 		State.SafeMode = on
