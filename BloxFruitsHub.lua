@@ -266,7 +266,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.10"
+HUB_VERSION = "3.11"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -3328,8 +3328,7 @@ do
 			farmStatusLabel.Text = "Hedef: " .. tostring(State.Target or "-")
 				.. "  •  Listede: " .. tostring(#mobList())
 				.. "  •  Silah: " .. tostring(tool and tool.Name or "yok")
-				.. "
-Son işlem: " .. tostring(lastFarmAction or "-")
+				.. "  •  Son: " .. tostring(lastFarmAction or "-")
 				.. "  •  Hata: " .. tostring(lastFarmError or "yok")
 			task.wait(0.5)
 		end
