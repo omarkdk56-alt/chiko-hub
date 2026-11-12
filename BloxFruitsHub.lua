@@ -192,6 +192,7 @@ local State = {
 	ClickAttack = true,        -- M1 hasarı için sanal tık (Blox Fruits şartı)
 	AuraTP = true,             -- Kill Aura hedefe ışınlanıp vurur (gerçekten çalışan mod)
 	SafeMode = true,           -- çökme önleme: ağır tarama/hook'lar kapalı, daha yavaş tempo
+	HardTp = false,            -- true: TP sırasında Anchored+Physics (karakteri kilitler)
 	ClickMethod = "?",         -- hangi tık yöntemi çalıştı (teşhis için)
 	-- dahili
 	Target = "-",
@@ -266,7 +267,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.11"
+HUB_VERSION = "3.12"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -1323,6 +1324,18 @@ function cancelTp()
 	tpTween = nil
 end
 
+-- karakteri kilitten çıkarır (Anchored / PlatformStand / durum takılması)
+function restoreChar()
+	local _, hum, hrp = getChar()
+	if hum then
+		pcall(function() hum.PlatformStand = false end)
+		pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
+	end
+	if hrp then
+		pcall(function() hrp.Anchored = false end)
+	end
+end
+
 -- gerçekten vardık mı? (yatay mesafe + yükseklik toleransı)
 function tpOk(pos, hrp, tol)
 	if not (pos and hrp) then return false end
@@ -1335,13 +1348,15 @@ function forceSet(pos, hold)
 	cancelTp()
 	local _, hum, hrp = getChar()
 	if not (hum and hrp) then return false end
-	hold = hold or (State.TpMethod == "Bypass" and 1.1 or 0.5)
+	hold = math.min(hold or 0.18, 0.25)
 	-- NOT: eskiden sadece CFrame yazılıyordu; fizik motoru karakteri geri
 	-- çektiği için "ışınlandı" deyip yerinde kalıyordu. Kısa süre sabitlemek
 	-- (Anchored) ve Humanoid'i Physics'e almak bunu engelliyor.
 	pcall(function() hum.PlatformStand = false end)
-	pcall(function() hum:ChangeState(Enum.HumanoidStateType.Physics) end)
-	pcall(function() hrp.Anchored = true end)
+	if State.HardTp == true then
+		pcall(function() hum:ChangeState(Enum.HumanoidStateType.Physics) end)
+		pcall(function() hrp.Anchored = true end)
+	end
 	-- güvenlik: bir terslik olursa sabitleme takılı kalmasın
 	task.delay(hold + 1.2, function()
 		local _, _, r = getChar()
@@ -1370,6 +1385,7 @@ function forceSet(pos, hold)
 	end
 	-- süren tween varsa iptal et (yoksa karakteri geri çeker)
 	cancelTp()
+	restoreChar()
 	return true
 end
 
@@ -2678,7 +2694,9 @@ function auraTick()
 				local target = m.HumanoidRootPart
 				local _, h2, r2 = getChar()
 				if not (h2 and r2) then break end
-				pcall(function() r2.CFrame = target.CFrame * CFrame.new(0, 0, 4.5) end)
+				if (target.Position - r2.Position).Magnitude > 7 then
+					pcall(function() r2.CFrame = target.CFrame * CFrame.new(0, 0, 4.5) end)
+				end
 				facePos(target.Position)
 				if State.AuraHold then holdMob(m) end
 				if tool then pcall(function() tool:Activate() end) end
@@ -4138,6 +4156,21 @@ task.spawn(function()
 			if hum then pcall(function() hum:ChangeState(11) end) end
 		end
 		task.wait(0.25)
+	end
+end)
+
+-- takılma koruması: farm/aura karakteri kilitlerse kendini toparlar
+task.spawn(function()
+	while gui.Parent do
+		task.wait(1)
+		if State.AutoFarm or State.KillAura or State.Fly then
+			local _, hum, hrp = getChar()
+			if hum and hrp then
+				if hrp.Anchored then pcall(function() hrp.Anchored = false end) end
+				if hum.PlatformStand and not State.Fly then pcall(function() hum.PlatformStand = false end) end
+				if hum.WalkSpeed == 0 and not State.Fly then pcall(function() hum.WalkSpeed = State.WalkSpeed end) end
+			end
+		end
 	end
 end)
 

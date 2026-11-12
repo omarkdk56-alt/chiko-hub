@@ -1,5 +1,5 @@
 {
-  "version": "3.11",
-  "notes": "Farm canli durum satiri + kisa kodda cift kaynak (github/jsdelivr) yedegi",
+  "version": "3.12",
+  "notes": "Karakter kilitlenmesi fix: TP artik anchor/Physics kullanmiyor, takilma korumasi eklendi",
   "updated": "2026-11-11"
 }
