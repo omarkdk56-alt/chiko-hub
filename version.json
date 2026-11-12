@@ -1,5 +1,5 @@
 {
-  "version": "3.14",
-  "notes": "Sandik/meyve tespiti gercek oyun duzenine gore (Chest1/2/3 BasePart, ToolTip Blox Fruit), mob bring + aura haki",
+  "version": "3.15",
+  "notes": "Bring mobs varsayilan acik, Sit/stun kilidi temizligi, sandik-meyve gercek duzen, blade hit hasar cekirdegi",
   "updated": "2026-11-12"
 }

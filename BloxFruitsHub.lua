@@ -1,6 +1,6 @@
 --[[
 =====================================================================
-  Blox Fruits Hub  v3.14
+  Blox Fruits Hub  v3.15
   Tek dosya, harici kütüphane yok.
   Kısayol: INSERT -> menüyü aç / kapat
   Tuş atamalarını "Ayarlar" sekmesinden değiştirebilirsin.
@@ -116,7 +116,7 @@ local State = {
 	UseSkills = true,
 	NoDamage = false,       -- vuruş hasar vermiyorsa true olur (sanal tık devreye girer)
 	FreezeMobs = false,
-	BringMobs = false,
+	BringMobs = true,
 	AttackMode = "Otomatik",   -- Otomatik | M1 | Meyve Skill | Kılıç Skill
 	AttackDelay = 0.12,
 	FastAttack = false,        -- vuruş aralığını en aza indirir
@@ -271,7 +271,7 @@ end
 --===================================================================
 -- 3.5) SÜRÜM KONTROLÜ
 --===================================================================
-HUB_VERSION = "3.14"
+HUB_VERSION = "3.15"
 VERSION_URL = "https://raw.githubusercontent.com/omarkdk56-alt/chiko-hub/main/version.json"
 
 function httpGet(url)
@@ -2617,6 +2617,8 @@ end)
 local function farmTick()
 	local ch, hum, hrp = getChar()
 	if not (ch and hum and hrp) or hum.Health <= 0 then return end
+	-- otururken vuruş/TP çalışmaz (deniz canavarı eventlerinden kalma Sit)
+	if hum.Sit then pcall(function() hum.Sit = false end) end
 
 	if State.AutoHaki then ensureHaki() end
 
@@ -2796,6 +2798,7 @@ auraLast = 0
 function auraTick()
 	local ch, hum, hrp = getChar()
 	if not (ch and hum and hrp) or hum.Health <= 0 then return end
+	if hum.Sit then pcall(function() hum.Sit = false end) end
 
 	local now = os.clock()
 	local delay = State.AuraTP and 0.12 or 0.07
@@ -3542,7 +3545,7 @@ do
 	cycle(page, "Düşman filtresi", { "Hepsi", "Sadece boss", "Deniz canavarı" }, State.MobFilter, function(v)
 		State.MobFilter = v
 	end)
-	toggle(page, "BringMobs", "Düşmanı yanına çek", false, function(on)
+	toggle(page, "BringMobs", "Düşmanı yanına çek", true, function(on)
 		State.BringMobs = on
 	end)
 	toggle(page, "FreezeMobs", "Düşmanı dondur", false, function(on)
